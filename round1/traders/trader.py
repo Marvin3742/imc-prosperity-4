@@ -136,8 +136,7 @@ logger = Logger()
 # ──────────────────────────────────────────────────────────────────────────────
 # Constants
 # ──────────────────────────────────────────────────────────────────────────────
-POSITION_LIMIT = 80      
-DRIFT_PER_STEP = 0.001     
+POSITION_LIMIT = 80
 
 
 # ──────────────────────────────────────────────────────────────────────────────
@@ -145,14 +144,11 @@ DRIFT_PER_STEP = 0.001
 # ──────────────────────────────────────────────────────────────────────────────
 
 class Trader:
-    def __init__(self) -> None:
-        self.pepper_open: float | None = None
-
-    def get_position(self, product):
-        positions = {"INTARIAN_PEPPER_ROOT": 4,
+    def get_quote_size(self, product):
+        quote_sizes = {"INTARIAN_PEPPER_ROOT": 4,
                      "ASH_COATED_OSMIUM": 6}
     
-        return positions[product]
+        return quote_sizes[product]
     
     def best_bid_ask(self, order_depth: OrderDepth):
         if not order_depth.buy_orders or not order_depth.sell_orders:
@@ -169,7 +165,7 @@ class Trader:
         best_bid, best_ask, _, _ = self.best_bid_ask(order_depth)
         if not best_bid or not best_ask:
             return orders
-        position = self.get_position(product)
+        position = self.get_quote_size(product)
         orders.append(Order(product, best_bid+1, position))
         orders.append(Order(product, best_ask-1, -position))
         return orders
@@ -177,38 +173,14 @@ class Trader:
     def buy_n_hold(self, product: str, state: TradingState) -> list[Order]:
         order_depth = state.order_depths[product]
         orders: list[Order] = []
+        remaining_capacity = POSITION_LIMIT - state.position.get(product, 0)
 
-        if not order_depth.buy_orders and not order_depth.sell_orders:
-            return orders
-
-        best_bid = max(order_depth.buy_orders) if order_depth.buy_orders else None
-        best_ask = min(order_depth.sell_orders) if order_depth.sell_orders else None
-
-        # Record the open price on the first tick where both sides are quoted
-        if self.pepper_open is None and best_bid is not None and best_ask is not None:
-            self.pepper_open = (best_bid + best_ask) / 2
-            logger.print(f"[{product}] Open price: {self.pepper_open}")
-
-        if self.pepper_open is None:
-            return orders
-
-        # Fair value drifts linearly upward from the open
-        fv = self.pepper_open + DRIFT_PER_STEP * state.timestamp
-        current_pos = state.position.get(product, 0)
-        remaining_capacity = POSITION_LIMIT - current_pos
-
-        logger.print(f"[{product}] t={state.timestamp} fv={fv:.1f} pos={current_pos}")
-
-        # Hit every ask at or below fair value until the position limit is reached
         for ask_price in sorted(order_depth.sell_orders.keys()):
             if remaining_capacity <= 0:
                 break
-            if True:
-                vol = min(-order_depth.sell_orders[ask_price], remaining_capacity)
-                logger.print(f"[{product}] BUY {vol}x @ {ask_price}")
-                orders.append(Order(product, ask_price, vol))
-                remaining_capacity -= vol
-
+            vol = min(-order_depth.sell_orders[ask_price], remaining_capacity)
+            orders.append(Order(product, ask_price, vol))
+            remaining_capacity -= vol
 
         return orders
     
